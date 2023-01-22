@@ -56,7 +56,9 @@ class SimpleURLLoaderWrapper
  private:
   SimpleURLLoaderWrapper(std::unique_ptr<network::ResourceRequest> request,
                          network::mojom::URLLoaderFactory* url_loader_factory,
-                         int options);
+                         int options,
+                         v8::Isolate* isolate,
+                         v8::Local<v8::Value> chunk_pipe_getter);
 
   // SimpleURLLoaderStreamConsumer:
   void OnDataReceived(base::StringPiece string_piece,
@@ -109,12 +111,9 @@ class SimpleURLLoaderWrapper
   void OnDownloadProgress(uint64_t current);
 
   void Start();
-  void Pin();
-  void PinBodyGetter(v8::Local<v8::Value>);
 
   std::unique_ptr<network::SimpleURLLoader> loader_;
-  v8::Global<v8::Value> pinned_wrapper_;
-  v8::Global<v8::Value> pinned_chunk_pipe_getter_;
+  v8::Global<v8::Value> chunk_pipe_getter_;
 
   mojo::ReceiverSet<network::mojom::URLLoaderNetworkServiceObserver>
       url_loader_network_observer_receivers_;

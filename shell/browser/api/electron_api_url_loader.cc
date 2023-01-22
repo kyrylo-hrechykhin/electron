@@ -267,7 +267,10 @@ gin::WrapperInfo SimpleURLLoaderWrapper::kWrapperInfo = {
 SimpleURLLoaderWrapper::SimpleURLLoaderWrapper(
     std::unique_ptr<network::ResourceRequest> request,
     network::mojom::URLLoaderFactory* url_loader_factory,
-    int options) {
+    int options,
+    v8::Isolate* isolate,
+    v8::Local<v8::Value> chunk_pipe_getter)
+    : chunk_pipe_getter_(isolate, chunk_pipe_getter) {
   if (!request->trusted_params)
     request->trusted_params = network::ResourceRequest::TrustedParams();
   mojo::PendingRemote<network::mojom::URLLoaderNetworkServiceObserver>
@@ -303,18 +306,6 @@ SimpleURLLoaderWrapper::SimpleURLLoaderWrapper(
       &SimpleURLLoaderWrapper::OnDownloadProgress, base::Unretained(this)));
 
   loader_->DownloadAsStream(url_loader_factory, this);
-}
-
-void SimpleURLLoaderWrapper::Pin() {
-  // Prevent ourselves from being GC'd until the request is complete.  Must be
-  // called after gin::CreateHandle, otherwise the wrapper isn't initialized.
-  v8::Isolate* isolate = JavascriptEnvironment::GetIsolate();
-  pinned_wrapper_.Reset(isolate, GetWrapper(isolate).ToLocalChecked());
-}
-
-void SimpleURLLoaderWrapper::PinBodyGetter(v8::Local<v8::Value> body_getter) {
-  pinned_chunk_pipe_getter_.Reset(JavascriptEnvironment::GetIsolate(),
-                                  body_getter);
 }
 
 SimpleURLLoaderWrapper::~SimpleURLLoaderWrapper() = default;
@@ -382,8 +373,6 @@ void SimpleURLLoaderWrapper::Clone(
 
 void SimpleURLLoaderWrapper::Cancel() {
   loader_.reset();
-  pinned_wrapper_.Reset();
-  pinned_chunk_pipe_getter_.Reset();
   // This ensures that no further callbacks will be called, so there's no need
   // for additional guards.
 }
@@ -532,14 +521,11 @@ gin::Handle<SimpleURLLoaderWrapper> SimpleURLLoaderWrapper::Create(
 
   auto url_loader_factory = session->browser_context()->GetURLLoaderFactory();
 
+  auto* isolate = args->isolate();
   auto ret = gin::CreateHandle(
-      args->isolate(),
+      isolate,
       new SimpleURLLoaderWrapper(std::move(request), url_loader_factory.get(),
-                                 options));
-  ret->Pin();
-  if (!chunk_pipe_getter.IsEmpty()) {
-    ret->PinBodyGetter(chunk_pipe_getter);
-  }
+                                 options, isolate, chunk_pipe_getter));
   return ret;
 }
 
@@ -562,8 +548,6 @@ void SimpleURLLoaderWrapper::OnComplete(bool success) {
     Emit("error", net::ErrorToString(loader_->NetError()));
   }
   loader_.reset();
-  pinned_wrapper_.Reset();
-  pinned_chunk_pipe_getter_.Reset();
 }
 
 void SimpleURLLoaderWrapper::OnRetry(base::OnceClosure start_retry) {}

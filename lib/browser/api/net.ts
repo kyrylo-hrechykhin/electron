@@ -40,10 +40,12 @@ class IncomingMessage extends Readable {
   _data: (Buffer | null)[] = [];
   _responseHead: NodeJS.ResponseHead;
   _resume: (() => void) | null = null;
+  _urlLoader: NodeJS.URLLoader;
 
-  constructor (responseHead: NodeJS.ResponseHead) {
+  constructor (urlLoader: NodeJS.URLLoader, responseHead: NodeJS.ResponseHead) {
     super();
     this._responseHead = responseHead;
+    this._urlLoader = urlLoader;
   }
 
   get statusCode () {
@@ -94,10 +96,6 @@ class IncomingMessage extends Readable {
 
   get trailers () {
     throw new Error('HTTP trailers are not supported');
-  }
-
-  ignore () {
-    this.emit('ignored');
   }
 
   _storeInternalData (chunk: Buffer | null, resume: (() => void) | null) {
@@ -424,10 +422,7 @@ export class ClientRequest extends Writable implements Electron.ClientRequest {
     const opts = { ...this._urlLoaderOptions, extraHeaders: stringifyValues(this._urlLoaderOptions.headers) };
     this._urlLoader = createURLLoader(opts);
     this._urlLoader.on('response-started', (event, finalUrl, responseHead) => {
-      const response = this._response = new IncomingMessage(responseHead);
-      this._response.on('ignored', () => {
-        this._urlLoader!.cancel();
-      });
+      const response = this._response = new IncomingMessage(this._urlLoader!, responseHead);
       this.emit('response', response);
     });
     this._urlLoader.on('data', (event, data, resume) => {
